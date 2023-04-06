@@ -24,7 +24,10 @@ class S3Uploader(FileSystemEventHandler):
         print("ready to upload files to s3")
 
     def mirror(self):
-        """compare all files in the directory to the files in the bucket and upload any new files, delete any files that are no longer in the directory"""
+        """
+        compare all files in the directory to the files in the bucket
+        upload any new files, delete any files that are no longer in the directory
+        """
         print("initial mirroring of files...")
         # get all the files in the directory
         local_files = set()
@@ -44,7 +47,9 @@ class S3Uploader(FileSystemEventHandler):
 
             while response['IsTruncated']:
                 response = self.client.list_objects_v2(
-                    Bucket=self.bucket, ContinuationToken=response['NextContinuationToken'])
+                    Bucket=self.bucket,
+                    ContinuationToken=response['NextContinuationToken'],
+                )
 
                 for obj in response['Contents']:
                     file_in_bucket.add(obj['Key'])
@@ -61,7 +66,7 @@ class S3Uploader(FileSystemEventHandler):
             self.client.upload_file(
                 self.basepath.joinpath(file),
                 self.bucket,
-                file
+                file,
             )
             print(f"Uploaded {file} to {self.bucket}")
 
