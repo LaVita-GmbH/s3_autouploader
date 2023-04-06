@@ -121,9 +121,5 @@ if __name__ == "__main__":
     s3handler = S3Uploader(args.bucket, args.url, args.key, args.secret, path)
     s3handler.mirror()
 
-    # TODO remove this
-    # create an event handler
-    event_handler = LoggingEventHandler()
-
     w = Watcher(args.dir, s3handler)
     w.watch()
