@@ -5,7 +5,7 @@ import time
 from pathlib import Path
 from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
-from watchdog.events import LoggingEventHandler, FileSystemEvent
+from watchdog.events import FileSystemEvent
 
 
 class S3Uploader(FileSystemEventHandler):
