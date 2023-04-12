@@ -1,4 +1,5 @@
 import argparse
+import logging
 import boto3
 import time
 
@@ -21,14 +22,14 @@ class S3Uploader(FileSystemEventHandler):
         )
         self.bucket = bucket
         self.basepath = basepath
-        print("ready to upload files to s3")
+        logging.info("ready to upload files to s3")
 
     def mirror(self):
         """
         compare all files in the directory to the files in the bucket
         upload any new files, delete any files that are no longer in the directory
         """
-        print("initial mirroring of files...")
+        logging.info("initial mirroring of files...")
         # get all the files in the directory
         local_files = set()
         for path in self.basepath.glob("**/*"):
@@ -68,14 +69,14 @@ class S3Uploader(FileSystemEventHandler):
                 self.bucket,
                 file,
             )
-            print(f"Uploaded {file} to {self.bucket}")
+            logging.info(f"Uploaded {file} to {self.bucket}")
 
         # delete any files that are no longer in the directory
         for file in files_to_delete:
             self.client.delete_object(Bucket=self.bucket, Key=file)
-            print(f"Deleted {file} from {self.bucket}")
+            logging.info(f"Deleted {file} from {self.bucket}")
 
-        print("initial mirroring complete")
+        logging.info("initial mirroring complete")
 
     def on_created(self, event: FileSystemEvent) -> None:
         filepath = Path(event.src_path)
@@ -87,12 +88,12 @@ class S3Uploader(FileSystemEventHandler):
             self.bucket,
             filepath.relative_to(self.basepath).as_posix()
         )
-        print(f"Uploaded {event.src_path} to {self.bucket}")
+        logging.info(f"Uploaded {event.src_path} to {self.bucket}")
 
     def on_deleted(self, event: FileSystemEvent) -> None:
         filepath = Path(event.src_path).relative_to(self.basepath).as_posix()
         self.client.delete_object(Bucket=self.bucket, Key=filepath)
-        print(f"Deleted {event.src_path} from {self.bucket}")
+        logging.info(f"Deleted {event.src_path} from {self.bucket}")
 
     def on_modified(self, event: FileSystemEvent) -> None:
         self.on_created(event)
@@ -110,7 +111,7 @@ class Watcher:
     def watch(self):
         """Watch a directory for changed files using watchdog"""
         self.observer.start()
-        print("Watching for changes...")
+        logging.info("Watching for changes...")
         try:
             while True:
                 time.sleep(1)
@@ -128,9 +129,17 @@ if __name__ == "__main__":
     parser.add_argument('url', help="S3 endpoint url")
     parser.add_argument('key', help="S3 access key")
     parser.add_argument('secret', help="S3 secret key")
+    parser.add_argument('--log', help="Log file path", default="s3_autoupload.log")
     args = parser.parse_args()
 
     path = Path(args.dir)
+
+    logging.basicConfig(
+        filename=args.log,
+        level=logging.INFO,
+        filemode="a+",
+        format="%(asctime)-15s %(levelname)-8s %(message)s",
+    )
 
     s3handler = S3Uploader(args.bucket, args.url, args.key, args.secret, path)
     s3handler.mirror()
