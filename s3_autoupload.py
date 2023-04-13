@@ -78,17 +78,30 @@ class S3Uploader(FileSystemEventHandler):
 
         logging.info("initial mirroring complete")
 
+    def upload(self, filepath: Path, count=1) -> None:
+        """Upload a single file to the bucket"""
+        try:
+            self.client.upload_file(
+                filepath,
+                self.bucket,
+                filepath.relative_to(self.basepath).as_posix()
+            )
+            logging.info(f"Uploaded {filepath} to {self.bucket}")
+
+        except PermissionError as e:
+            if(count > 5):
+                logging.error(f"{filepath} could not be uploaded: {e.with_traceback(None)}")
+                return
+            logging.error(f"{filepath} could not be uploaded: {e}\nwaiting {count*5} seconds and trying again...")
+            time.sleep(5*count)
+            self.upload(filepath, count + 1)
+
     def on_created(self, event: FileSystemEvent) -> None:
         filepath = Path(event.src_path)
         if not filepath.exists() or not filepath.is_file():
             return
 
-        self.client.upload_file(
-            event.src_path,
-            self.bucket,
-            filepath.relative_to(self.basepath).as_posix()
-        )
-        logging.info(f"Uploaded {event.src_path} to {self.bucket}")
+        self.upload(filepath)
 
     def on_deleted(self, event: FileSystemEvent) -> None:
         filepath = Path(event.src_path).relative_to(self.basepath).as_posix()
