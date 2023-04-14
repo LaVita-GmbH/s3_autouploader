@@ -112,8 +112,11 @@ class S3Uploader(FileSystemEventHandler):
         self.on_created(event)
 
     def on_moved(self, event: FileSystemEvent) -> None:
+        filepath = Path(event.dest_path)
+        if not filepath.exists() or not filepath.is_file():
+            return
+        self.upload(filepath)
         self.on_deleted(event)
-        self.on_created(event)
 
 
 class Watcher:
