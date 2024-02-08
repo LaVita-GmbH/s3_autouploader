@@ -3,6 +3,8 @@ import logging
 import boto3
 import time
 
+from threading import Thread
+
 from pathlib import Path
 from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
@@ -11,7 +13,14 @@ from watchdog.events import FileSystemEvent
 
 class S3Uploader(FileSystemEventHandler):
     def __init__(
-        self, bucket: str, url: str, key: str, secret: str, basepath: Path
+        self,
+        bucket: str,
+        url: str,
+        key: str,
+        secret: str,
+        basepath: Path,
+        wait_time: int = 30,
+        max_retries: int = 15,
     ) -> None:
         super().__init__()
         # create an s3 client and pass in the credentials, url and region
@@ -24,6 +33,8 @@ class S3Uploader(FileSystemEventHandler):
         )
         self.bucket = bucket
         self.basepath = basepath
+        self.wait_time = wait_time
+        self.max_retries = max_retries
         logging.info("ready to upload files to s3")
 
     def mirror(self):
@@ -80,25 +91,37 @@ class S3Uploader(FileSystemEventHandler):
 
         logging.info("initial mirroring complete")
 
-    def upload(self, filepath: Path, count=1) -> None:
+    def upload(self, filepath: Path) -> None:
         """Upload a single file to the bucket"""
-        try:
-            self.client.upload_file(
-                filepath, self.bucket, filepath.relative_to(self.basepath).as_posix()
-            )
-            logging.info(f"Uploaded {filepath} to {self.bucket}")
+        thread = Thread(target=self._upload, args=(filepath,))
+        thread.start()
 
-        except PermissionError as e:
-            if count > 5:
-                logging.error(
-                    f"{filepath} could not be uploaded: {e.with_traceback(None)}"
+    def _upload(self, filepath: Path) -> None:
+        for i in range(self.max_retries):
+            try:
+                self.client.upload_file(
+                    filepath,
+                    self.bucket,
+                    filepath.relative_to(self.basepath).as_posix(),
                 )
-                return
-            logging.error(
-                f"{filepath} could not be uploaded: {e}\nwaiting {count*5} seconds and trying again..."
-            )
-            time.sleep(5 * count)
-            self.upload(filepath, count + 1)
+                logging.info(f"Uploaded {filepath} to {self.bucket}")
+                break
+
+            except PermissionError as e:
+                if i == self.max_retries - 1:
+                    logging.error(
+                        f"{filepath} could not be uploaded: {e.with_traceback(None)}\n"
+                        + "Max retries reached, giving up..."
+                    )
+                    return
+
+                if i % 5 == 0:
+                    logging.error(
+                        f"{filepath} could not be uploaded: {e}\n"
+                        + f"waiting {i*self.wait_time} seconds and trying again..."
+                    )
+
+                time.sleep(self.wait_time * i)
 
     def on_created(self, event: FileSystemEvent) -> None:
         filepath = Path(event.src_path)
@@ -152,6 +175,14 @@ if __name__ == "__main__":
     parser.add_argument("key", help="S3 access key")
     parser.add_argument("secret", help="S3 secret key")
     parser.add_argument("--log", help="Log file path", default="s3_autoupload.log")
+    parser.add_argument(
+        "--wait",
+        help="Time in seconds to wait between retries, scales with every failed try",
+        default=30,
+    )
+    parser.add_argument(
+        "--retries", help="Number of retries before giving up", default=15
+    )
     args = parser.parse_args()
 
     path = Path(args.dir)
@@ -163,8 +194,20 @@ if __name__ == "__main__":
         format="%(asctime)-15s %(levelname)-8s %(message)s",
     )
 
-    s3handler = S3Uploader(args.bucket, args.url, args.key, args.secret, path)
-    s3handler.mirror()
+    s3handler = S3Uploader(
+        args.bucket,
+        args.url,
+        args.key,
+        args.secret,
+        path,
+        wait_time=args.wait,
+        max_retries=args.retries,
+    )
 
     w = Watcher(args.dir, s3handler)
-    w.watch()
+    thread = Thread(target=w.watch)
+    thread.start()
+
+    s3handler.mirror()
+
+    thread.join()
