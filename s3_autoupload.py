@@ -97,8 +97,7 @@ class S3Uploader(FileSystemEventHandler):
         thread.start()
 
     def _upload(self, filepath: Path) -> None:
-        count = 1
-        while True:
+        for i in range(self.max_retries):
             try:
                 self.client.upload_file(
                     filepath,
@@ -106,22 +105,23 @@ class S3Uploader(FileSystemEventHandler):
                     filepath.relative_to(self.basepath).as_posix(),
                 )
                 logging.info(f"Uploaded {filepath} to {self.bucket}")
+                break
 
             except PermissionError as e:
-                if count > self.max_retries:
+                if i == self.max_retries - 1:
                     logging.error(
-                        f"{filepath} could not be uploaded: {e.with_traceback(None)}"
+                        f"{filepath} could not be uploaded: {e.with_traceback(None)}\n"
+                        + "Max retries reached, giving up..."
                     )
                     return
 
-                if count == 1:
+                if i % 5 == 0:
                     logging.error(
                         f"{filepath} could not be uploaded: {e}\n"
-                        + f"waiting {count*self.wait_time} seconds and trying again..."
+                        + f"waiting {i*self.wait_time} seconds and trying again..."
                     )
 
-                time.sleep(self.wait_time * count)
-                count += 1
+                time.sleep(self.wait_time * i)
 
     def on_created(self, event: FileSystemEvent) -> None:
         filepath = Path(event.src_path)
